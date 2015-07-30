@@ -9,9 +9,6 @@ var ipIndex = {};
 
 collector(function(flow) {
 
-	// get current timestamp
-	var ts = Math.round((new Date()).getTime() / 1000);
-
 	// regex for finding our addresses
 	var re = new RegExp("(^127\.0\.0\.1)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)");
 
@@ -68,9 +65,9 @@ collector(function(flow) {
 
 				// this is a new host, insert it
 				if (dir == 1) {
-					l = hosts.insert({h:ip,i:0,o:b,firstTs:ts})['$loki'];
+					l = hosts.insert({h:ip,i:0,o:b,firstTs:f.first_switched,lastTs:f.last_switched})['$loki'];
 				} else {
-					l = hosts.insert({h:ip,i:b,o:0,firstTs:ts})['$loki'];
+					l = hosts.insert({h:ip,i:b,o:0,firstTs:f.first_switched,lastTs:f.last_switched})['$loki'];
 				}
 
 				// add the $loki id to the ipIndex
@@ -90,6 +87,9 @@ collector(function(flow) {
 					// users download or in from user perspective
 					o.i += b;
 				}
+
+				o.lastTs = f.last_switched;
+
 				hosts.update(o);
 
 			}
@@ -101,13 +101,13 @@ collector(function(flow) {
 	console.log('--------');
 
 	// header
-	console.log("\x1b[32m",'Host',"\033[19G\x1b[30m",'Download',"\033[49G",'Upload');
+	console.log("\x1b[32m",'Host',"\033[19G\x1b[30m",'Download',"\033[49G",'Upload',"\033[80G",'Duration');
 
 	// get data sorted by i with a limit
 	var d = hosts.chain().find().simplesort('i',true).limit(25).data();
 
 	for (var i=0; i<d.length; i++) {
-		console.log("\x1b[32m",d[i].h,"\033[20G\x1b[30m"+bytesToSize(d[i].i)+'\033[32G'+getBps(d[i].i,d[i].firstTs,ts),"\033[50G"+bytesToSize(d[i].o)+'\033[62G'+getBps(d[i].o,d[i].firstTs,ts));
+		console.log("\x1b[32m",d[i].h,"\033[20G\x1b[30m"+bytesToSize(d[i].i)+'\033[32G'+getBps(d[i].i,d[i].firstTs/1000,d[i].lastTs/1000),"\033[50G"+bytesToSize(d[i].o)+'\033[62G'+getBps(d[i].o,d[i].firstTs/1000,d[i].lastTs/1000),"\033[80G",secondsToHuman((d[i].lastTs-d[i].firstTs)/1000));
 	}
 
 
@@ -138,3 +138,32 @@ function bytesToSize(bytes) {
     var i = Math.floor( Math.log(bytes) / Math.log(1024) );
     return ( bytes / Math.pow(1024, i) ).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
 };
+
+function secondsToHuman(os) {
+	var s = Math.round(os);
+	if (s > 60) {
+		var m = Math.round(s/60);
+		s = s%60;
+	} else {
+		var m = '00';
+	}
+	if (m > 60) {
+		var h = Math.round(s/60/60);
+	} else {
+		var h = '00';
+	}
+
+	if (String(s).length < 2) {
+		s = '0'+String(s);
+	}
+
+	if (String(m).length < 2) {
+		m = '0'+String(m);
+	}
+
+	if (String(h).length < 2) {
+		h = '0'+String(h);
+	}
+
+	return h+':'+m+':'+s;
+}
