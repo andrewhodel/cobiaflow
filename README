@@ -1,0 +1,5 @@
+npm install node-netflowv9
+npm install sdbjs
+node cobiaflow.js
+
+point your v9 netflow stream at port 3000 of the host you are running cobiaflow on

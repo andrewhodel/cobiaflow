@@ -1,9 +1,9 @@
 var collector = require('node-netflowv9');
-var loki = require('lokijs');
-var db = new loki('db.json');
+var sdb = require('sdbjs');
 
-// create collection with indices
-var hosts = db.addCollection('hosts',{indices:['i','ip']});
+var hosts = new sdb();
+hosts.index('i');
+hosts.index('h', true, true);
 
 var ipIndex = {};
 
@@ -14,13 +14,14 @@ collector(function(flow) {
 
 	for (i in flow.flows) {
 
+		/*
 		// if doClear is set, clear first
 		if (doClear > 0) {
 
 			console.log('clearing db');
 
 			// first remove from the db if under threshold of doClear
-			hosts.removeWhere({'i':{'$lt':doClear}});
+			hosts.remove
 
 			// then loop through all the db entries to clean up the ipIndex
 			var e = hosts.find();
@@ -36,6 +37,7 @@ collector(function(flow) {
 			// finally set doClear back to 0
 			doClear = 0;
 		}
+		*/
 
 		var f = flow.flows[i];
 
@@ -60,37 +62,36 @@ collector(function(flow) {
 			// find host in ipIndex
 			if (typeof(ipIndex[ip]) == 'undefined') {
 
-				// storage for the $loki id
-				var l = 0;
+				var l;
 
 				// this is a new host, insert it
 				if (dir == 1) {
-					l = hosts.insert({h:ip,i:0,o:b,firstTs:f.first_switched,lastTs:f.last_switched})['$loki'];
+					l = hosts.insert({h:ip,i:0,o:b,firstTs:f.first_switched,lastTs:f.last_switched});
 				} else {
-					l = hosts.insert({h:ip,i:b,o:0,firstTs:f.first_switched,lastTs:f.last_switched})['$loki'];
+					l = hosts.insert({h:ip,i:b,o:0,firstTs:f.first_switched,lastTs:f.last_switched});
 				}
 
-				// add the $loki id to the ipIndex
-				ipIndex[ip] = l;
+				// add the _id to the ipIndex
+				ipIndex[ip] = l._id;
 
 			} else {
 
 				// this is an existing host, update data for counters
 
 				// find it with get, faster binary search
-				var o = hosts.get(ipIndex[ip]);
+				var o = {};
 
 				if (dir == 1) {
 					// users upload or out from user perspective
-					o.o += b;
+					o.o = b;
 				} else {
 					// users download or in from user perspective
-					o.i += b;
+					o.i = b;
 				}
 
-				o.lastTs = f.last_switched;
+				var lastTs = {lastTs: f.last_switched};
 
-				hosts.update(o);
+				var u = hosts.update({h: ip}, {$add: o, $set: lastTs});
 
 			}
 
@@ -104,7 +105,9 @@ collector(function(flow) {
 	console.log("\x1b[32m",'Host',"\033[19G\x1b[30m",'Download',"\033[49G",'Upload',"\033[80G",'Duration');
 
 	// get data sorted by i with a limit
-	var d = hosts.chain().find().simplesort('i',true).limit(25).data();
+	var d = hosts.find({});
+	d = hosts.sort({i: 'highest_first'}, d);
+	d = hosts.limit(25, d);
 
 	for (var i=0; i<d.length; i++) {
 		console.log("\x1b[32m",d[i].h,"\033[20G\x1b[30m"+bytesToSize(d[i].i)+'\033[32G'+getBps(d[i].i,d[i].firstTs/1000,d[i].lastTs/1000),"\033[50G"+bytesToSize(d[i].o)+'\033[62G'+getBps(d[i].o,d[i].firstTs/1000,d[i].lastTs/1000),"\033[80G",secondsToHuman((d[i].lastTs-d[i].firstTs)/1000));
@@ -112,6 +115,7 @@ collector(function(flow) {
 
 
 }).listen(3000);
+console.log('cobiaflow is listening for netflow v9 packets on port 3000');
 
 // every 5 minutes clear out devices under threshold of N MB downloaded
 var doClear = 0;
@@ -120,6 +124,12 @@ var clearInterval = setInterval(function() {
 }, 1000*60*5);
 
 function getBps(bytes,startTs,ts) {
+
+	if (bytes == 0 || startTs == ts) {
+		// if there are no bytes or no time then there is no point in trying to get bits per second
+		return 0;
+	}
+
 	// first multiply bytes by 8 to get bits
 	var bits = bytes*8;
 
@@ -130,13 +140,16 @@ function getBps(bytes,startTs,ts) {
 }
 
 function bitsToSize(bits) {
-    var i = Math.floor( Math.log(bits) / Math.log(1000) );
-    return ( bits / Math.pow(1000, i) ).toFixed(2) * 1 + ' ' + ['bps', 'kbps', 'mbps', 'gbps', 'tbps'][i];
+	var i = Math.floor( Math.log(bits) / Math.log(1000) );
+	return ( bits / Math.pow(1000, i) ).toFixed(2) * 1 + ' ' + ['bps', 'kbps', 'mbps', 'gbps', 'tbps'][i];
 };
 
 function bytesToSize(bytes) {
-    var i = Math.floor( Math.log(bytes) / Math.log(1024) );
-    return ( bytes / Math.pow(1024, i) ).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
+	if (bytes == 0) {
+		return 0;
+	}
+	var i = Math.floor( Math.log(bytes) / Math.log(1024) );
+	return ( bytes / Math.pow(1024, i) ).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
 };
 
 function secondsToHuman(os) {
