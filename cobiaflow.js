@@ -39,9 +39,9 @@ collector(function(flow) {
 
 				// this is a new host, insert it
 				if (dir == 1) {
-					l = hosts.insert({h:ip,i:0,o:b,firstTs:f.first_switched,lastTs:f.last_switched});
+					l = hosts.insert({h:ip,i:0,o:b,first_switched_ms:f.first_switched,last_switched_ms:f.last_switched, last_update: Date.now()});
 				} else {
-					l = hosts.insert({h:ip,i:b,o:0,firstTs:f.first_switched,lastTs:f.last_switched});
+					l = hosts.insert({h:ip,i:b,o:0,first_switched_ms:f.first_switched,last_switched_ms:f.last_switched, last_update: Date.now()});
 				}
 
 			} else {
@@ -57,9 +57,9 @@ collector(function(flow) {
 					o.i = b;
 				}
 
-				var lastTs = {lastTs: f.last_switched};
+				var last_switched_ms = {last_switched_ms: f.last_switched, last_update: Date.now()};
 
-				var u = hosts.update({h: ip}, {$add: o, $set: lastTs});
+				var u = hosts.update({h: ip}, {$add: o, $set: last_switched_ms});
 
 			}
 
@@ -78,16 +78,16 @@ collector(function(flow) {
 	d = hosts.limit(25, d);
 
 	for (var i=0; i<d.length; i++) {
-		console.log("\x1b[32m",d[i].h,"\033[20G\x1b[30m"+bytesToSize(d[i].i)+'\033[32G'+getBps(d[i].i,d[i].firstTs/1000,d[i].lastTs/1000),"\033[50G"+bytesToSize(d[i].o)+'\033[62G'+getBps(d[i].o,d[i].firstTs/1000,d[i].lastTs/1000),"\033[80G",secondsToHuman((d[i].lastTs-d[i].firstTs)/1000));
+		console.log("\x1b[32m",d[i].h,"\033[20G\x1b[30m"+bytesToSize(d[i].i)+'\033[32G'+getBps(d[i].i,d[i].first_switched_ms/1000,d[i].last_switched_ms/1000),"\033[50G"+bytesToSize(d[i].o)+'\033[62G'+getBps(d[i].o,d[i].first_switched_ms/1000,d[i].last_switched_ms/1000),"\033[80G",secondsToHuman((d[i].last_switched_ms-d[i].first_switched_ms)/1000));
 	}
 
 
 }).listen(3000);
 console.log('cobiaflow is listening for netflow v9 packets on port 3000');
 
-// every 5 minutes clear out devices which haven't had an update in the last 5 minutes
+// every 5 minutes clear out devices which haven't had an update in the last 30 minutes
 var clearInterval = setInterval(function() {
-	var docs = hosts.find({lastTs: {$lt: Date.now()-(1000*60*5)}});
+	var docs = hosts.find({last_update: {$lt: Date.now()-(1000*60*30)}});
 	for (var c=0; c<docs.length; c++) {
 		hosts.remove({_id: docs[c]._id});
 	}
@@ -119,7 +119,7 @@ function bytesToSize(bytes) {
 		return 0;
 	}
 	var i = Math.floor( Math.log(bytes) / Math.log(1024) );
-	return ( bytes / Math.pow(1024, i) ).toFixed(2) * 1 + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
+	return ( bytes / Math.pow(1024, i) ).toFixed(2) * 1 + ' ' + ['B', 'KB', 'MB', 'GB', 'TB'][i];
 };
 
 function secondsToHuman(os) {
