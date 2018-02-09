@@ -5,39 +5,12 @@ var hosts = new sdb();
 hosts.index('i');
 hosts.index('h', true, true);
 
-var ipIndex = {};
-
 collector(function(flow) {
 
 	// regex for finding our addresses
 	var re = new RegExp("(^127\.0\.0\.1)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)");
 
 	for (i in flow.flows) {
-
-		/*
-		// if doClear is set, clear first
-		if (doClear > 0) {
-
-			console.log('clearing db');
-
-			// first remove from the db if under threshold of doClear
-			hosts.remove
-
-			// then loop through all the db entries to clean up the ipIndex
-			var e = hosts.find();
-
-			// reset ipIndex
-			ipIndex = [];
-
-			// now put db values back in it
-			for (var c=0; c<e.length; c++) {
-				ipIndex[e[c].h] = e[c]['$loki'];
-			}
-
-			// finally set doClear back to 0
-			doClear = 0;
-		}
-		*/
 
 		var f = flow.flows[i];
 
@@ -59,8 +32,8 @@ collector(function(flow) {
 
 		if (dir != -1) {
 
-			// find host in ipIndex
-			if (typeof(ipIndex[ip]) == 'undefined') {
+			// find host
+			if (hosts.find({h: ip}).length == 0) {
 
 				var l;
 
@@ -71,14 +44,9 @@ collector(function(flow) {
 					l = hosts.insert({h:ip,i:b,o:0,firstTs:f.first_switched,lastTs:f.last_switched});
 				}
 
-				// add the _id to the ipIndex
-				ipIndex[ip] = l._id;
-
 			} else {
 
-				// this is an existing host, update data for counters
-
-				// find it with get, faster binary search
+				// this is an existing host, increase counters
 				var o = {};
 
 				if (dir == 1) {
@@ -104,7 +72,7 @@ collector(function(flow) {
 	// header
 	console.log("\x1b[32m",'Host',"\033[19G\x1b[30m",'Download',"\033[49G",'Upload',"\033[80G",'Duration');
 
-	// get data sorted by i with a limit
+	// get data sorted by i (inbound data) with a limit
 	var d = hosts.find({});
 	d = hosts.sort({i: 'highest_first'}, d);
 	d = hosts.limit(25, d);
@@ -117,10 +85,12 @@ collector(function(flow) {
 }).listen(3000);
 console.log('cobiaflow is listening for netflow v9 packets on port 3000');
 
-// every 5 minutes clear out devices under threshold of N MB downloaded
-var doClear = 0;
+// every 5 minutes clear out devices which haven't had an update in the last 5 minutes
 var clearInterval = setInterval(function() {
-	doClear = 1000000*3;
+	var docs = hosts.find({lastTs: {$lt: Date.now()-(1000*60*5)}});
+	for (var c=0; c<docs.length; c++) {
+		hosts.remove({_id: docs[c]._id});
+	}
 }, 1000*60*5);
 
 function getBps(bytes,startTs,ts) {
@@ -153,17 +123,27 @@ function bytesToSize(bytes) {
 };
 
 function secondsToHuman(os) {
+
 	var s = Math.round(os);
 	if (s > 60) {
-		var m = Math.round(s/60);
+		var m = Math.floor(s/60);
 		s = s%60;
 	} else {
 		var m = '00';
 	}
+
 	if (m > 60) {
-		var h = Math.round(s/60/60);
+		var h = Math.floor(m/60);
+		m = m-(h*60);
 	} else {
 		var h = '00';
+	}
+
+	if (h > 24) {
+		var d = Math.floor(h/24)
+		h = h-(d*24);
+	} else {
+		var d = '0';
 	}
 
 	if (String(s).length < 2) {
@@ -178,5 +158,7 @@ function secondsToHuman(os) {
 		h = '0'+String(h);
 	}
 
-	return h+':'+m+':'+s;
+	d = String(d) + ' days ';
+
+	return d+h+':'+m+':'+s;
 }
